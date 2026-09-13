@@ -46,6 +46,7 @@ require_once CARZURI_INSTALLER_PATH . 'carzuri-installer-license-config.php';
 require_once CARZURI_INSTALLER_PATH . 'includes/class-carzuri-installer-license.php';
 require_once CARZURI_INSTALLER_PATH . 'includes/class-carzuri-installer-manifest.php';
 require_once CARZURI_INSTALLER_PATH . 'includes/class-carzuri-installer-engine.php';
+require_once CARZURI_INSTALLER_PATH . 'includes/class-carzuri-installer-pages.php';
 require_once CARZURI_INSTALLER_PATH . 'includes/class-carzuri-installer-admin.php';
 
 function carzuri_installer_init() {

@@ -43,11 +43,14 @@ order (Core first).
 7. A new "Carzuri Installer" menu item appears in wp-admin (near the
    top). Open it — it will ask for the activation code you set in
    step 2 before showing anything else. Enter it, then click
-   "Install All Plugins."
-8. Work through the Setup Checklist shown on that same page: create
-   the listed WordPress pages, insert each one's shortcode, then finish
-   client-specific configuration in Carzuri → Settings (currency,
-   supported locations, Gemini API key, payment gateway key).
+   "Install Plugins & Create Pages." This single click installs and
+   activates all 19 plugins AND creates every needed WordPress page
+   with its shortcode already inserted (including setting the Home
+   page as the site's static front page, if you leave that box checked).
+8. Review the Setup Checklist at the bottom of that same page to
+   confirm every page shows "✓ Created," then finish client-specific
+   configuration in Carzuri → Settings (currency, supported locations,
+   Gemini API key, payment gateway key).
 9. Once setup is confirmed working, Carzuri Installer itself can be
    deactivated and deleted — it's a one-time deployment tool, not
    something the live site needs running long-term.
@@ -70,8 +73,9 @@ list itself. To adapt it for a new, unrelated project (e.g. a school
 management system):
 1. Rewrite includes/class-carzuri-installer-manifest.php with that
    project's own plugin slugs, main files, and correct install order.
-2. Update the checklist array in
-   includes/class-carzuri-installer-admin.php with that project's own
-   pages/shortcodes.
-3. Everything else (class-carzuri-installer-engine.php, the admin page
-   shell, the packaging process above) works unchanged.
+2. Rewrite the manifest in includes/class-carzuri-installer-pages.php
+   with that project's own pages, content/shortcodes, and the
+   shortcode string used to detect an existing page.
+3. Everything else (class-carzuri-installer-engine.php, the license
+   gate, the admin page shell, the packaging process above) works
+   unchanged.

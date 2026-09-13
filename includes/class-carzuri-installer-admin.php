@@ -1,11 +1,10 @@
 <?php
 /**
  * Admin UI for the Carzuri Installer: a single wp-admin page with an
- * "Install All Plugins" button, a results table, and a manual setup
- * checklist for the pages/shortcodes this platform still needs created
- * by hand (Phase 2 of this tool will automate page creation once every
- * plugin's exact shortcode name is confirmed — see the checklist below
- * for which ones already are).
+ * "Install Plugins & Create Pages" button that runs both Phase 1 (plugin
+ * install/activate) and Phase 2 (page creation) in one click, plus a
+ * live-status checklist that reflects what's actually in the database at
+ * any time — not just right after clicking the button.
  *
  * @package CarzuriInstaller
  */
@@ -44,21 +43,39 @@ class Carzuri_Installer_Admin {
 			return;
 		}
 
-		$results = null;
+		$plugin_results = null;
+		$page_results   = null;
 
 		if ( isset( $_POST['carzuri_installer_run'] ) && check_admin_referer( 'carzuri_installer_run_action', 'carzuri_installer_nonce' ) ) {
-			$results = Carzuri_Installer_Engine::install_all();
+			$plugin_results = Carzuri_Installer_Engine::install_all();
+
+			// Only attempt page creation if Core (the one 'required'
+			// plugin) actually succeeded — every shortcode depends on its
+			// CPT/taxonomies existing, so creating pages before that would
+			// just mean empty, non-functional shortcodes on the page.
+			$core_failed = false;
+			foreach ( $plugin_results as $row ) {
+				if ( 'carzuri-core' === $row['slug'] && 'error' === $row['status'] ) {
+					$core_failed = true;
+					break;
+				}
+			}
+
+			if ( ! $core_failed ) {
+				$set_front_page = ! empty( $_POST['carzuri_set_front_page'] );
+				$page_results   = Carzuri_Installer_Pages::create_all_pages( $set_front_page );
+			}
 		}
 
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Carzuri Installer', 'carzuri-installer' ); ?></h1>
 			<p class="description">
-				<?php esc_html_e( 'One-click deployment of the full Carzuri plugin suite onto this WordPress site. Run this once on a fresh install.', 'carzuri-installer' ); ?>
+				<?php esc_html_e( 'One-click deployment of the full Carzuri plugin suite onto this WordPress site — installs and activates all 19 plugins, then creates every needed page with its shortcode already inserted. Run this once on a fresh install.', 'carzuri-installer' ); ?>
 			</p>
 
-			<?php if ( null !== $results ) : ?>
-				<h2><?php esc_html_e( 'Install Results', 'carzuri-installer' ); ?></h2>
+			<?php if ( null !== $plugin_results ) : ?>
+				<h2><?php esc_html_e( 'Plugin Install Results', 'carzuri-installer' ); ?></h2>
 				<table class="widefat striped" style="max-width: 800px;">
 					<thead>
 						<tr>
@@ -68,7 +85,7 @@ class Carzuri_Installer_Admin {
 						</tr>
 					</thead>
 					<tbody>
-						<?php foreach ( $results as $row ) : ?>
+						<?php foreach ( $plugin_results as $row ) : ?>
 							<tr>
 								<td><strong><?php echo esc_html( $row['label'] ); ?></strong></td>
 								<td><?php echo self::status_badge( $row['status'] ); ?></td>
@@ -79,15 +96,15 @@ class Carzuri_Installer_Admin {
 				</table>
 				<p>
 					<?php
-					$error_count = count( array_filter( $results, function ( $r ) {
+					$error_count = count( array_filter( $plugin_results, function ( $r ) {
 						return 'error' === $r['status'];
 					} ) );
 					if ( 0 === $error_count ) {
-						esc_html_e( 'All plugins processed successfully. Continue with the setup checklist below.', 'carzuri-installer' );
+						esc_html_e( 'All plugins processed successfully.', 'carzuri-installer' );
 					} else {
 						printf(
 							/* translators: %d: number of plugins that failed */
-							esc_html__( '%d plugin(s) had an error above — check the Detail column, fix the issue (often a missing or misnamed bundled zip), and click "Install All Plugins" again. Already-installed plugins are safely skipped on a re-run.', 'carzuri-installer' ),
+							esc_html__( '%d plugin(s) had an error above — check the Detail column, fix the issue (often a missing or misnamed bundled zip), and click the button again. Already-installed plugins are safely skipped on a re-run.', 'carzuri-installer' ),
 							(int) $error_count
 						);
 					}
@@ -95,33 +112,83 @@ class Carzuri_Installer_Admin {
 				</p>
 			<?php endif; ?>
 
+			<?php if ( null !== $page_results ) : ?>
+				<h2><?php esc_html_e( 'Page Creation Results', 'carzuri-installer' ); ?></h2>
+				<table class="widefat striped" style="max-width: 800px;">
+					<thead>
+						<tr>
+							<th><?php esc_html_e( 'Page', 'carzuri-installer' ); ?></th>
+							<th><?php esc_html_e( 'Status', 'carzuri-installer' ); ?></th>
+							<th><?php esc_html_e( 'Detail', 'carzuri-installer' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $page_results as $row ) : ?>
+							<tr>
+								<td><strong><?php echo esc_html( $row['title'] ); ?></strong></td>
+								<td><?php echo self::status_badge( $row['status'] ); ?></td>
+								<td>
+									<?php echo esc_html( $row['message'] ); ?>
+									<?php if ( ! empty( $row['edit_link'] ) ) : ?>
+										— <a href="<?php echo esc_url( $row['edit_link'] ); ?>" target="_blank"><?php esc_html_e( 'Edit page', 'carzuri-installer' ); ?></a>
+									<?php endif; ?>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php elseif ( null !== $plugin_results ) : ?>
+				<div class="notice notice-warning"><p>
+					<?php esc_html_e( 'Page creation was skipped because Carzuri Core failed to install — fix that first, then run this again.', 'carzuri-installer' ); ?>
+				</p></div>
+			<?php endif; ?>
+
 			<form method="post" style="margin: 20px 0;">
 				<?php wp_nonce_field( 'carzuri_installer_run_action', 'carzuri_installer_nonce' ); ?>
+				<p>
+					<label>
+						<input type="checkbox" name="carzuri_set_front_page" value="1" checked>
+						<?php esc_html_e( 'Set the Home page as this site\'s static front page', 'carzuri-installer' ); ?>
+					</label>
+				</p>
 				<button type="submit" name="carzuri_installer_run" value="1" class="button button-primary button-hero">
-					<?php esc_html_e( 'Install All Plugins', 'carzuri-installer' ); ?>
+					<?php esc_html_e( 'Install Plugins & Create Pages', 'carzuri-installer' ); ?>
 				</button>
 			</form>
 
 			<hr>
 
-			<h2><?php esc_html_e( 'Setup Checklist (after plugins are installed)', 'carzuri-installer' ); ?></h2>
+			<h2><?php esc_html_e( 'Setup Checklist — Live Status', 'carzuri-installer' ); ?></h2>
 			<p class="description">
-				<?php esc_html_e( 'Create these WordPress pages and add the listed shortcode(s) to each. Confirmed shortcodes are ready to use as-is; unconfirmed ones should be checked against that plugin\'s own shortcode-registration file before use.', 'carzuri-installer' ); ?>
+				<?php esc_html_e( 'This reflects what actually exists in this site\'s database right now, whether or not you\'ve clicked the button above.', 'carzuri-installer' ); ?>
 			</p>
 			<table class="widefat striped" style="max-width: 900px;">
 				<thead>
 					<tr>
 						<th><?php esc_html_e( 'Page', 'carzuri-installer' ); ?></th>
-						<th><?php esc_html_e( 'Shortcode(s)', 'carzuri-installer' ); ?></th>
+						<th><?php esc_html_e( 'Shortcode', 'carzuri-installer' ); ?></th>
 						<th><?php esc_html_e( 'Status', 'carzuri-installer' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
-					<?php foreach ( self::get_setup_checklist() as $item ) : ?>
+					<?php foreach ( Carzuri_Installer_Pages::get_page_manifest() as $item ) : ?>
+						<?php $existing_id = Carzuri_Installer_Pages::find_existing_page_id( $item['check_shortcode'] ); ?>
 						<tr>
-							<td><?php echo esc_html( $item['page'] ); ?></td>
-							<td><code><?php echo esc_html( $item['shortcode'] ); ?></code></td>
-							<td><?php echo $item['confirmed'] ? esc_html__( '✓ Confirmed', 'carzuri-installer' ) : esc_html__( '⚠ Confirm before use', 'carzuri-installer' ); ?></td>
+							<td><?php echo esc_html( $item['title'] ); ?></td>
+							<td><code><?php echo esc_html( $item['check_shortcode'] ); ?></code></td>
+							<td>
+								<?php if ( $existing_id ) : ?>
+									✓ <a href="<?php echo esc_url( get_edit_post_link( $existing_id, '' ) ); ?>" target="_blank"><?php esc_html_e( 'Created', 'carzuri-installer' ); ?></a>
+								<?php else : ?>
+									<?php esc_html_e( 'Not created yet', 'carzuri-installer' ); ?>
+								<?php endif; ?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+					<?php foreach ( Carzuri_Installer_Pages::get_no_page_needed_items() as $item ) : ?>
+						<tr style="color:#6b7280;">
+							<td><?php echo esc_html( $item['title'] ); ?></td>
+							<td colspan="2"><?php echo esc_html( $item['note'] ); ?></td>
 						</tr>
 					<?php endforeach; ?>
 				</tbody>
@@ -136,13 +203,15 @@ class Carzuri_Installer_Admin {
 	}
 
 	/**
-	 * Small colored status label for the results table.
+	 * Small colored status label, shared by both results tables.
 	 */
 	private static function status_badge( $status ) {
 		$map = array(
 			'already_active' => array( '#f1f5f9', '#334155', __( 'Already Active', 'carzuri-installer' ) ),
 			'activated'       => array( '#ecfdf5', '#065f46', __( 'Activated', 'carzuri-installer' ) ),
 			'installed'       => array( '#ecfdf5', '#065f46', __( 'Installed', 'carzuri-installer' ) ),
+			'created'         => array( '#ecfdf5', '#065f46', __( 'Created', 'carzuri-installer' ) ),
+			'exists'          => array( '#f1f5f9', '#334155', __( 'Already Existed', 'carzuri-installer' ) ),
 			'error'           => array( '#fef2f2', '#991b1b', __( 'Error', 'carzuri-installer' ) ),
 		);
 		$style = isset( $map[ $status ] ) ? $map[ $status ] : array( '#f1f5f9', '#334155', $status );
@@ -152,48 +221,6 @@ class Carzuri_Installer_Admin {
 			esc_attr( $style[0] ),
 			esc_attr( $style[1] ),
 			esc_html( $style[2] )
-		);
-	}
-
-	/**
-	 * Pages/shortcodes needed to fully wire up the site after plugins are
-	 * active. Every entry below has been directly verified against each
-	 * plugin's own source (add_shortcode() calls), confirmed in full
-	 * across all 19 plugins — nothing here is inferred or guessed.
-	 *
-	 * Shortcodes that are always auto-embedded by another template rather
-	 * than needing their own page (carzuri_vehicle_reviews inside the
-	 * single-vehicle template, carzuri_message_dealer_button inside both
-	 * the single-vehicle template and the dealer profile/dashboard) are
-	 * intentionally left off this list — they need no setup action.
-	 */
-	private static function get_setup_checklist() {
-		return array(
-			array( 'page' => 'Homepage', 'shortcode' => '[carzuri_hero][carzuri_search_bar][carzuri_vehicle_grid featured_only="true" limit="5" columns="5"][carzuri_latest_blog_posts]', 'confirmed' => true ),
-			array( 'page' => 'Buyer Login', 'shortcode' => '[carzuri_buyer_login]', 'confirmed' => true ),
-			array( 'page' => 'Buyer Registration', 'shortcode' => '[carzuri_buyer_registration]', 'confirmed' => true ),
-			array( 'page' => 'Dealer Login', 'shortcode' => '[carzuri_dealer_login]', 'confirmed' => true ),
-			array( 'page' => 'Dealer Registration', 'shortcode' => '[carzuri_dealer_registration]', 'confirmed' => true ),
-			array( 'page' => 'Dealer Dashboard', 'shortcode' => '[carzuri_dealer_dashboard]', 'confirmed' => true ),
-			array( 'page' => 'Dealer Profile', 'shortcode' => '[carzuri_dealer_profile]', 'confirmed' => true ),
-			array( 'page' => 'Dealers Directory', 'shortcode' => '[carzuri_dealers_directory]', 'confirmed' => true ),
-			array( 'page' => 'Admin Login', 'shortcode' => '[carzuri_admin_login]', 'confirmed' => true ),
-			array( 'page' => 'Admin Portal', 'shortcode' => '[carzuri_admin_dashboard]', 'confirmed' => true ),
-			array( 'page' => 'Request a Valuation', 'shortcode' => '[carzuri_ai_valuation]', 'confirmed' => true ),
-			array( 'page' => 'My Valuation History', 'shortcode' => '[carzuri_valuation_history]', 'confirmed' => true ),
-			array( 'page' => 'Customer Dashboard', 'shortcode' => '[carzuri_customer_dashboard]', 'confirmed' => true ),
-			array( 'page' => 'My Favorites', 'shortcode' => '[carzuri_my_favorites]', 'confirmed' => true ),
-			array( 'page' => 'Saved Searches', 'shortcode' => '[carzuri_saved_searches]', 'confirmed' => true ),
-			array( 'page' => 'Finance Calculator', 'shortcode' => '[carzuri_finance_calculator]', 'confirmed' => true ),
-			array( 'page' => 'Apply for Finance', 'shortcode' => '[carzuri_finance_application_form]', 'confirmed' => true ),
-			array( 'page' => 'My Finance Applications', 'shortcode' => '[carzuri_my_finance_applications]', 'confirmed' => true ),
-			array( 'page' => 'Finance Admin Queue', 'shortcode' => '[carzuri_finance_admin_queue]', 'confirmed' => true ),
-			array( 'page' => 'My Inquiries', 'shortcode' => '[carzuri_my_inquiries]', 'confirmed' => true ),
-			array( 'page' => 'My Messages', 'shortcode' => '[carzuri_my_messages]', 'confirmed' => true ),
-			array( 'page' => '(AI Chatbot)', 'shortcode' => 'No page needed — injects itself site-wide via wp_footer', 'confirmed' => true ),
-			array( 'page' => '(Site Header & Footer)', 'shortcode' => 'No page needed — hooks into every page automatically', 'confirmed' => true ),
-			array( 'page' => '(Vehicle & Dealer Reviews)', 'shortcode' => 'No page needed — auto-embedded inside the single-vehicle page and dealer profile', 'confirmed' => true ),
-			array( 'page' => '(Message Dealer button)', 'shortcode' => 'No page needed — auto-embedded inside the single-vehicle page and dealer dashboard', 'confirmed' => true ),
 		);
 	}
 }
